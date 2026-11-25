@@ -32,6 +32,8 @@ button.danger{color:var(--red)}
 .btns{display:flex;flex-wrap:wrap;gap:6px}
 .drop{border:2px dashed var(--line);border-radius:8px;padding:14px;text-align:center;color:var(--mute);font-size:13px;cursor:pointer}
 .drop.over{border-color:var(--accent);color:var(--accent)}
+.snapnote{margin:0 16px 8px;padding:8px 10px;border-radius:6px;background:var(--accent);color:#fff;font-size:13px}
+.snapnote[hidden]{display:none}
 .msg{font-size:12px;margin-top:6px;color:var(--mute)}
 .msg.err{color:var(--red)}
 .hint{font-size:12px;color:var(--mute);margin:6px 0 0}
@@ -72,11 +74,23 @@ button.danger{color:var(--red)}
 .pop{border-collapse:collapse;margin-top:4px;font-size:13px}.pop td{padding:1px 0}.pop td:first-child{color:#5d6570;padding-right:10px}.pop td:last-child{font-variant-numeric:tabular-nums;user-select:all}
 @media(max-width:760px){body{grid-template-columns:1fr;grid-template-rows:60vh auto}#mapwrap{height:60vh;order:-1}aside{border-right:0}}
 </style>
+<script id="savedState" type="application/json"></script>
 </head>
 <body>
 <aside>
   <h1>Radius Mapper</h1>
   <p class="sub">Plot points with a radius in meters. Files are read on this computer only.</p>
+  <div class="snapnote" id="snapNote" hidden></div>
+
+  <section>
+    <h2>Save this map</h2>
+    <label for="saveName">Map name</label>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+      <input type="text" id="saveName" placeholder="e.g. Case 26-1234, day 1">
+      <button class="primary" id="saveMap">Save map</button>
+    </div>
+    <p class="hint">Downloads an .html copy with everything on screen. Open it in Chrome later to view or keep editing.</p>
+  </section>
 
   <section>
     <h2>Upload spreadsheet</h2>
@@ -185,9 +199,12 @@ button.danger{color:var(--red)}
 
 <script>
 {
+const PAGE_SRC = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;   // pristine copy for "Save map"
+const SNAP = (() => { try { const t = document.getElementById('savedState').textContent.trim(); return t ? JSON.parse(t) : null; } catch (e) { return null; } })();
 const DEFAULT_COLOR = '#2ecc40';
 const DEFAULT_OPACITY = 0.25;
-const STORE = 'radiusMapper.points.v1';
+// The live tool and each saved map keep separate browser storage so they never overwrite each other
+const STORE = SNAP && SNAP.id ? 'radiusMapper.snap.' + SNAP.id : 'radiusMapper.points.v1';
 const pts = [];          // {id,name,lat,lng,r,color,layers}
 let nextId = 1;
 let tempPin = null;
@@ -213,7 +230,7 @@ map.on('click', e => {
   if (!$('lm').hidden) setLmSpot(e.latlng.lat, e.latlng.lng, '');
   if (tempPin) map.removeLayer(tempPin);
   tempPin = L.circleMarker(e.latlng, {radius: 6, color: '#0a5cff', weight: 2, fillOpacity: 0.3}).addTo(map);
-  $('mName').focus();
+  if ($('lm').hidden && $('qa').hidden) $('mName').focus({preventScroll: true});
 });
 
 // ---- Points ----
@@ -600,8 +617,8 @@ $('lmList').addEventListener('click', e => {
   if (b.dataset.act === 'del') { lmGroup.removeLayer(lms[i].layer); lms.splice(i, 1); refreshLm(); }
 });
 
-function setLmSpot(lat, lng, addr) {
-  lmSpot = {lat, lng, addr};
+function setLmSpot(lat, lng, addr, q) {
+  lmSpot = {lat, lng, addr, q: q || ''};
   if (lmPin) map.removeLayer(lmPin);
   lmPin = L.circleMarker([lat, lng], {radius: 9, color: '#0a5cff', weight: 2, dashArray: '3 3', fillOpacity: 0.15}).addTo(map);
   $('lmAt').textContent = (addr ? addr + ' · ' : '') + lat.toFixed(6) + ', ' + lng.toFixed(6);
@@ -639,28 +656,34 @@ async function findLm() {
   const q = $('lmAddr').value.trim(); $('lmMsg').textContent = ''; $('lmRes').innerHTML = '';
   if (!q) { $('lmMsg').textContent = 'Type an address or coordinates first.'; return; }
   const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (m && !checkPoint(+m[1], +m[2], 1)) { setLmSpot(+m[1], +m[2], ''); map.setView([+m[1], +m[2]], Math.max(map.getZoom(), 16)); return; }
-  $('lmFind').disabled = true; $('lmFind').textContent = '…';
+  if (m && !checkPoint(+m[1], +m[2], 1)) { setLmSpot(+m[1], +m[2], '', q); map.setView([+m[1], +m[2]], Math.max(map.getZoom(), 16)); return; }
+  $('lmFind').disabled = true; $('lmFind').textContent = '…'; $('lmAt').textContent = 'Searching…';
   try {
     lmFound = await geocode(q);
-    if (!lmFound.length) { $('lmMsg').textContent = 'No match. Try adding the city and state.'; return; }
+    if (!lmFound.length) { $('lmMsg').textContent = 'No match. Try adding the city and state.'; $('lmAt').textContent = 'No location yet.'; return; }
     $('lmRes').innerHTML = lmFound.map((f, i) => `<li data-i="${i}" tabindex="0">${esc(f.label)}</li>`).join('');
     pickLm(0);
-  } catch (e) { $('lmMsg').textContent = e.message || 'Address search failed. Check your internet connection.'; }
+  } catch (e) { $('lmMsg').textContent = 'Address search failed (' + (e.message || 'no connection') + '). You can tap the map or paste lat, long instead.'; $('lmAt').textContent = 'No location yet.'; }
   finally { $('lmFind').disabled = false; $('lmFind').textContent = 'Find'; }
 }
 function pickLm(i) {
   const f = lmFound[i]; if (!f) return;
   [...$('lmRes').children].forEach((li, k) => li.classList.toggle('sel', k === i));
-  setLmSpot(f.lat, f.lng, f.label);
+  setLmSpot(f.lat, f.lng, f.label, $('lmAddr').value.trim());
   map.setView([f.lat, f.lng], Math.max(map.getZoom(), 16));
 }
 $('lmFind').onclick = findLm;
 $('lmAddr').addEventListener('keydown', e => { if (e.key === 'Enter') findLm(); });
 $('lmRes').addEventListener('click', e => { const li = e.target.closest('li'); if (li) pickLm(+li.dataset.i); });
 $('lmRes').addEventListener('keydown', e => { const li = e.target.closest('li'); if (li && e.key === 'Enter') pickLm(+li.dataset.i); });
-$('lmAdd').onclick = () => {
-  if (!lmSpot) { $('lmMsg').textContent = 'Find an address or tap the map to set the location.'; return; }
+$('lmAdd').onclick = async () => {
+  const typed = $('lmAddr').value.trim();
+  if (typed && (!lmSpot || (lmSpot.q !== typed && lmSpot.q !== ''))) {
+    $('lmAdd').disabled = true;
+    try { await findLm(); } finally { $('lmAdd').disabled = false; }
+    if (!lmSpot || lmSpot.q !== typed) return;   // search failed; message already shown
+  }
+  if (!lmSpot) { $('lmMsg').textContent = 'Type an address (or lat, long), or tap the map, to set the location.'; return; }
   const l = addLm($('lmName').value.trim(), lmSpot.addr, lmSpot.lat, lmSpot.lng, $('lmCol').value);
   refreshLm();
   $('lmName').value = ''; $('lmAddr').value = ''; lmSpot = null; lmFound = [];
@@ -706,22 +729,57 @@ $('tmpl').onclick = () => writeSheet([
 function save() {
   try { localStorage.setItem(STORE, JSON.stringify(pts.map(({name, lat, lng, r, color, time, op}) => ({name, lat, lng, r, color, time, op})))); } catch (e) {}
 }
-try { const z = JSON.parse(localStorage.getItem(STORE + '.tz') || '{}'); if (z.srcTz) srcTz = z.srcTz; if (z.showTz) showTz = z.showTz; } catch (e) {}
+const local = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+if (SNAP) {
+  if (SNAP.srcTz) srcTz = SNAP.srcTz;
+  if (SNAP.showTz) showTz = SNAP.showTz;
+  if (SNAP.sortBy) sortBy = SNAP.sortBy;
+  $('saveName').value = SNAP.name || '';
+  $('snapNote').hidden = false;
+  $('snapNote').textContent = `Saved map: ${SNAP.name || 'Untitled'} · saved ${new Date(SNAP.savedAt).toLocaleString()}. Changes stay in this browser; use Save map to make a new file.`;
+}
+try { const z = JSON.parse(local(STORE + '.tz') || '{}'); if (z.srcTz) srcTz = z.srcTz; if (z.showTz) showTz = z.showTz; } catch (e) {}
 fillZones();
-try { const v = localStorage.getItem(STORE + '.sort'); if (['added','new','old'].includes(v)) { sortBy = v; $('sortBy').value = v; } } catch (e) {}
+{ const v = local(STORE + '.sort'); if (['added','new','old'].includes(v)) sortBy = v; $('sortBy').value = sortBy; }
 try {
-  const saved = JSON.parse(localStorage.getItem(STORE) || '[]');
+  const stored = local(STORE);
+  const saved = stored !== null ? JSON.parse(stored) : (SNAP && SNAP.points) || [];
   saved.forEach(p => { if (isFinite(p.lat) && isFinite(p.lng) && p.r > 0) addPoint(p.name, p.lat, p.lng, p.r, p.color,
     p.time ? {...p.time, wall: p.time.wall ?? NaN} : (p.ts ? {raw: p.ts, wall: NaN, off: null, tz: null, label: '', manual: true} : null), p.op); });
-  if (saved.length) fitAll();
+  if (saved.length && !(SNAP && SNAP.view && stored === null)) fitAll();
 } catch (e) {}
 try {
-  JSON.parse(localStorage.getItem(STORE + '.lm') || '[]').forEach(l => {
+  const storedLm = local(STORE + '.lm');
+  (storedLm !== null ? JSON.parse(storedLm) : (SNAP && SNAP.landmarks) || []).forEach(l => {
     if (Number.isFinite(l.lat) && Number.isFinite(l.lng)) addLm(l.name, l.addr, l.lat, l.lng, l.color);
   });
 } catch (e) {}
+if (SNAP && SNAP.view && local(STORE) === null) map.setView([SNAP.view.lat, SNAP.view.lng], SNAP.view.z);
 refreshLm();
 refresh();
+
+// ---- Save map: download a self-contained copy of this page with the current state built in ----
+$('saveMap').onclick = () => {
+  const name = $('saveName').value.trim() || 'Radius map';
+  const c = map.getCenter(), now = new Date();
+  const state = {
+    id: now.getTime().toString(36) + Math.random().toString(36).slice(2, 7), name, savedAt: now.toISOString(),
+    points: pts.map(({name, lat, lng, r, color, time, op}) => ({name, lat, lng, r, color, time, op})),
+    landmarks: lms.map(({name, addr, lat, lng, color}) => ({name, addr, lat, lng, color})),
+    srcTz, showTz, sortBy, view: {lat: c.lat, lng: c.lng, z: map.getZoom()}
+  };
+  const json = JSON.stringify(state).replace(/</g, '\\u003c');
+  let html = PAGE_SRC.replace(/(<script id="savedState" type="application\/json">)[\s\S]*?(<\/script>)/, (m, a, b) => a + json + b);
+  html = html.replace(/<title>[\s\S]*?<\/title>/, () => '<title>' + esc(name) + ' - Radius Mapper<\/title>');
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], {type: 'text/html'}));
+  a.download = (name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'radius-map') + '_' + stamp + '.html';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  const b = $('saveMap'); b.textContent = 'Saved ✓'; setTimeout(() => { b.textContent = 'Save map'; }, 2000);
+};
 }
 </script>
 </body>
