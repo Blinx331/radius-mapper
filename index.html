@@ -32,6 +32,17 @@ button.danger{color:var(--red)}
 .btns{display:flex;flex-wrap:wrap;gap:6px}
 .drop{border:2px dashed var(--line);border-radius:8px;padding:14px;text-align:center;color:var(--mute);font-size:13px;cursor:pointer}
 .drop.over{border-color:var(--accent);color:var(--accent)}
+.tlbar{position:absolute;left:10px;right:10px;bottom:24px;z-index:1000;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;max-width:760px;margin:0 auto}
+.tlbar[hidden]{display:none}
+.tlrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tlrow+.tlrow{margin-top:8px}
+.tlrow input[type=range]{flex:1 1 160px;accent-color:var(--accent);height:28px}
+.tlrow select{width:auto;min-height:34px;padding:4px 6px;font-size:14px}
+.tlrow label.ck{display:flex;align-items:center;gap:5px;margin:0;font-size:13px;color:var(--ink)}
+.tlrow button{min-height:36px;padding:6px 10px}
+#tlTime{font-weight:700;font-variant-numeric:tabular-nums}
+#tlMeta{color:var(--mute);font-size:13px}
+.tools button.on{background:#16191d;color:#fff;border-color:#16191d}
 .snapnote{margin:0 16px 8px;padding:8px 10px;border-radius:6px;background:var(--accent);color:#fff;font-size:13px}
 .snapnote[hidden]{display:none}
 .msg{font-size:12px;margin-top:6px;color:var(--mute)}
@@ -174,8 +185,26 @@ button.danger{color:var(--red)}
 </aside>
 <div id="mapwrap">
   <div id="map"></div>
+  <div class="tlbar" id="tlBar" hidden>
+    <div class="tlrow">
+      <button class="primary" id="tlPlay" style="min-width:76px">▶ Play</button>
+      <button id="tlPrev" aria-label="Previous ping">◀</button>
+      <button id="tlNext" aria-label="Next ping">▶</button>
+      <input type="range" id="tlScrub" min="0" max="0" value="0" aria-label="Time-lapse position">
+      <button id="tlExit">Exit</button>
+    </div>
+    <div class="tlrow"><span id="tlTime">No points yet</span><span id="tlMeta"></span></div>
+    <div class="tlrow">
+      <select id="tlSpeed" aria-label="Speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select>
+      <select id="tlPace" aria-label="Pacing"><option value="even">Even steps</option><option value="real">Real time (scaled)</option></select>
+      <label class="ck"><input type="checkbox" id="tlTrail" checked> Trail</label>
+      <label class="ck"><input type="checkbox" id="tlRadii"> Keep old radii</label>
+      <label class="ck"><input type="checkbox" id="tlFollow" checked> Follow</label>
+    </div>
+  </div>
   <div class="tools">
     <button class="primary" id="qaOpen">+ Add point</button>
+    <button id="tlOpen">▶ Time-lapse</button>
     <button class="danger" id="resetLm">Reset landmarks</button>
     <button class="danger" id="resetPts">Reset points</button>
     <button class="danger" id="reset">Reset all</button>
@@ -221,6 +250,8 @@ const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Wo
 const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {maxZoom: 19});
 L.control.layers({'Street': street, 'Satellite': sat, 'Satellite + labels': L.layerGroup([sat, labels])}, null, {position: 'topright'}).addTo(map);
 L.control.scale({imperial: true, metric: true}).addTo(map);
+map.createPane('pts').style.zIndex = 390;   // regular points (hidden during time-lapse)
+map.createPane('tl').style.zIndex = 395;    // time-lapse layers; landmarks sit above in the overlay pane
 const group = L.featureGroup().addTo(map);
 
 map.on('click', e => {
@@ -242,8 +273,8 @@ function draw(p) {
     <tr><td>Timestamp</td><td>${t ? esc(t) : '<i>none</i>'}</td></tr>
     ${conv ? `<tr><td>As written</td><td>${esc(p.time.raw)}</td></tr>` : ''}
     <tr><td>Radius</td><td>${p.r.toLocaleString()} m</td></tr></table>`; };
-  const circle = L.circle([p.lat, p.lng], {radius: p.r, color: p.color, weight: 1.5, fillColor: p.color, fillOpacity: p.op}).bindPopup(popup);
-  const dot = L.circleMarker([p.lat, p.lng], {radius: 4, color: '#a0100c', weight: 1, fillColor: '#e6261f', fillOpacity: 1}).bindPopup(popup);
+  const circle = L.circle([p.lat, p.lng], {pane: 'pts', radius: p.r, color: p.color, weight: 1.5, fillColor: p.color, fillOpacity: p.op}).bindPopup(popup);
+  const dot = L.circleMarker([p.lat, p.lng], {pane: 'pts', radius: 4, color: '#a0100c', weight: 1, fillColor: '#e6261f', fillOpacity: 1}).bindPopup(popup);
   p.layers = [circle, dot];
   group.addLayer(circle); group.addLayer(dot);
 }
@@ -283,6 +314,7 @@ $('sortBy').onchange = e => {
 function refresh() {
   $('count').textContent = pts.length ? `(${pts.length})` : '';
   tzSummary();
+  if (typeof tlSync === 'function') tlSync();
   $('list').innerHTML = pts.length ? sorted().map(p => `
     <li data-id="${p.id}">
       <input type="color" value="${esc(p.color)}" aria-label="Circle color for ${esc(p.name)}">
@@ -309,6 +341,7 @@ $('list').addEventListener('click', e => {
   const id = +b.closest('li').dataset.id;
   const p = pts.find(x => x.id === id);
   if (b.dataset.act === 'del') removePoint(id);
+  if (b.dataset.act === 'go' && p && tl.active) { tlSeekTo(p.id); return; }
   if (b.dataset.act === 'go' && p) { map.fitBounds(p.layers[0].getBounds(), {padding: [40, 40]}); p.layers[0].openPopup(); }
 });
 
@@ -473,6 +506,7 @@ function wallToMs(wall, tz) { const first = wall - tzOffset(wall, tz) * 60000; r
 function parseSheetTime(raw, shown) {
   const text = String(shown ?? raw ?? '').trim();
   if (!text) return null;
+  if (typeof raw !== 'number' && /^-?\d+(\.\d+)?$/.test(text)) return {raw: text, wall: NaN, off: null, tz: null, label: '', manual: false};
   if (typeof raw === 'number' && raw > 20000 && raw < 80000)   // real Excel date cell: no zone stored
     return {raw: text, wall: Math.round((raw - 25569) * 86400) * 1000, off: null, tz: null, label: '', manual: false};
   let off = null, label = '', rest = text;
@@ -546,8 +580,12 @@ function handleFile(file) {
       if (c.lat < 0 || c.lng < 0) {
         // No header row: numbers in order = latitude, longitude, radius; a date-looking cell = timestamp
         const r0 = rows[0], s0 = shown[0];
-        const isDateCell = i => { const t = parseSheetTime(r0[i], s0[i]); return !!t && Number.isFinite(t.wall); };
-        const nums = r0.map((v, i) => i).filter(i => r0[i] !== '' && isFinite(Number(r0[i])) && !(typeof r0[i] === 'number' && isDateCell(i) && Math.abs(r0[i]) > 180));
+        // A cell is a date only if it displays like one (plain numbers such as a radius never count)
+        const isDateCell = i => {
+          if (/^\s*-?[\d,]+(\.\d+)?\s*$/.test(String(s0[i]))) return false;
+          const t = parseSheetTime(r0[i], s0[i]); return !!t && Number.isFinite(t.wall);
+        };
+        const nums = r0.map((v, i) => i).filter(i => r0[i] !== '' && isFinite(Number(r0[i])) && !isDateCell(i));
         if (nums.length < 3) throw new Error('Could not find Latitude, Longitude and Radius columns. First row: ' + s0.join(' | '));
         c = {name: -1, lat: nums[0], lng: nums[1], r: nums[2], color: -1, ts: r0.findIndex((v, i) => !nums.includes(i) && isDateCell(i)), op: -1};
         first = 0;
@@ -692,6 +730,116 @@ $('lmAdd').onclick = async () => {
   l.layer.openPopup();
 };
 $('lmName').addEventListener('keydown', e => { if (e.key === 'Enter') $('lmAddr').focus(); });
+
+// ---- Time-lapse ----
+var tl = {active: false, playing: false, frames: [], i: 0, timer: null};
+const tlLayer = L.layerGroup().addTo(map);
+function tlFrames() {
+  return pts.map(p => ({p, ms: instant(p)})).filter(f => Number.isFinite(f.ms)).sort((a, b) => a.ms - b.ms || a.p.id - b.p.id);
+}
+function fmtGap(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return Math.round(ms / 1000) + ' sec';
+  if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h < 48) return h + ' hr' + (r ? ' ' + r + ' min' : '');
+  return Math.round(h / 24) + ' days';
+}
+function tlRender() {
+  tlLayer.clearLayers();
+  const F = tl.frames, n = F.length;
+  $('tlScrub').max = Math.max(0, n - 1); $('tlScrub').value = tl.i;
+  if (!n) {
+    $('tlTime').textContent = 'No points with a readable timestamp';
+    $('tlMeta').textContent = 'Time-lapse needs timestamps to put the pings in order.';
+    return;
+  }
+  const seen = F.slice(0, tl.i + 1), cur = F[tl.i].p;
+  if ($('tlTrail').checked && seen.length > 1)
+    L.polyline(seen.map(f => [f.p.lat, f.p.lng]), {pane: 'tl', color: '#0a5cff', weight: 3, opacity: 0.75}).addTo(tlLayer);
+  seen.forEach((f, k) => {
+    const p = f.p, isCur = k === tl.i;
+    if (isCur || $('tlRadii').checked)
+      L.circle([p.lat, p.lng], {pane: 'tl', radius: p.r, color: p.color, weight: isCur ? 2 : 1, opacity: isCur ? 1 : 0.45,
+        fillColor: p.color, fillOpacity: isCur ? p.op : p.op * 0.35, interactive: false}).addTo(tlLayer);
+    if (!isCur)
+      L.circleMarker([p.lat, p.lng], {pane: 'tl', radius: 3.5, color: '#a0100c', weight: 1, opacity: 0.6, fillColor: '#e6261f', fillOpacity: 0.55})
+        .bindPopup(p.layers[1].getPopup().getContent()).addTo(tlLayer);
+  });
+  L.circleMarker([cur.lat, cur.lng], {pane: 'tl', radius: 7, color: '#fff', weight: 2.5, fillColor: '#e6261f', fillOpacity: 1})
+    .bindPopup(cur.layers[1].getPopup().getContent())
+    .bindTooltip(esc(cur.name), {permanent: true, direction: 'top', offset: [0, -9], className: 'lm-label'}).addTo(tlLayer);
+  const t = timeText(cur);
+  $('tlTime').textContent = t || cur.name;
+  const gap = tl.i > 0 ? ' · +' + fmtGap(F[tl.i].ms - F[tl.i - 1].ms) + ' since last' : '';
+  $('tlMeta').textContent = `Ping ${tl.i + 1} of ${n}${gap}`;
+  if ($('tlFollow').checked && !map.getBounds().pad(-0.2).contains([cur.lat, cur.lng])) map.panTo([cur.lat, cur.lng]);
+}
+function tlDelay() {
+  const base = 900 / +$('tlSpeed').value, F = tl.frames;
+  if ($('tlPace').value !== 'real' || tl.i >= F.length - 1) return base;
+  const span = F[F.length - 1].ms - F[0].ms;
+  if (span <= 0) return base;
+  const share = (F[tl.i + 1].ms - F[tl.i].ms) / span;   // this gap's share of the whole timeline
+  return Math.min(base * 8, Math.max(60, share * base * (F.length - 1)));
+}
+function tlTick() {
+  if (tl.i >= tl.frames.length - 1) return tlPause();
+  tl.i++; tlRender();
+  tl.timer = setTimeout(tlTick, tlDelay());
+}
+function tlPlay() {
+  if (!tl.frames.length) return;
+  if (tl.i >= tl.frames.length - 1) { tl.i = 0; tlRender(); }
+  tl.playing = true; $('tlPlay').textContent = '❚❚ Pause';
+  clearTimeout(tl.timer); tl.timer = setTimeout(tlTick, tlDelay());
+}
+function tlPause() { tl.playing = false; clearTimeout(tl.timer); $('tlPlay').textContent = '▶ Play'; }
+function tlStep(d) { tlPause(); tl.i = Math.min(Math.max(0, tl.i + d), Math.max(0, tl.frames.length - 1)); tlRender(); }
+function tlSeekTo(id) {
+  const k = tl.frames.findIndex(f => f.p.id === id);
+  if (k < 0) return;
+  tlPause(); tl.i = k; tlRender(); map.panTo([tl.frames[k].p.lat, tl.frames[k].p.lng]);
+}
+function tlEnter() {
+  tl.active = true; tl.i = 0;
+  tl.frames = tlFrames();
+  map.getPane('pts').style.display = 'none';
+  map.closePopup();
+  $('tlBar').hidden = false; $('tlOpen').classList.add('on'); $('tlOpen').textContent = '■ Time-lapse';
+  qa.hidden = true;
+  if (tl.frames.length) map.fitBounds(L.latLngBounds(tl.frames.map(f => [f.p.lat, f.p.lng])).pad(0.15), {maxZoom: 16});
+  tlRender();
+}
+function tlExit() {
+  tlPause(); tl.active = false; tlLayer.clearLayers();
+  map.getPane('pts').style.display = '';
+  $('tlBar').hidden = true; $('tlOpen').classList.remove('on'); $('tlOpen').textContent = '▶ Time-lapse';
+}
+// Called from refresh(): keep frames current when points, colors or time zones change
+function tlSync() {
+  if (!tl.active) return;
+  const curId = tl.frames[tl.i] && tl.frames[tl.i].p.id;
+  tl.frames = tlFrames();
+  const k = tl.frames.findIndex(f => f.p.id === curId);
+  tl.i = k >= 0 ? k : Math.min(tl.i, Math.max(0, tl.frames.length - 1));
+  if (!tl.frames.length) tlPause();
+  tlRender();
+}
+$('tlOpen').onclick = () => tl.active ? tlExit() : tlEnter();
+$('tlExit').onclick = tlExit;
+$('tlPlay').onclick = () => tl.playing ? tlPause() : tlPlay();
+$('tlPrev').onclick = () => tlStep(-1);
+$('tlNext').onclick = () => tlStep(1);
+$('tlScrub').addEventListener('input', e => { tlPause(); tl.i = +e.target.value; tlRender(); });
+['tlTrail','tlRadii','tlFollow'].forEach(id => $(id).addEventListener('change', tlRender));
+['click','dblclick','mousedown','touchstart','wheel'].forEach(t => $('tlBar').addEventListener(t, e => e.stopPropagation()));
+document.addEventListener('keydown', e => {
+  if (!tl.active || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if (e.key === ' ') { e.preventDefault(); tl.playing ? tlPause() : tlPlay(); }
+  if (e.key === 'ArrowRight') tlStep(1);
+  if (e.key === 'ArrowLeft') tlStep(-1);
+});
 
 const drop = $('drop');
 drop.onclick = () => $('file').click();
