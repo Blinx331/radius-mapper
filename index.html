@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radius Mapper</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--ink:#16191d;--mute:#5d6570;--line:#dde1e6;--accent:#0a5cff;--red:#e6261f}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1116;--panel:#171b22;--ink:#e8ebef;--mute:#9aa3ae;--line:#2a313b}}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%}
+body{display:grid;grid-template-columns:360px 1fr;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+aside{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column}
+#map{height:100vh}
+h1{font-size:20px;margin:0;padding:16px 16px 4px}
+.sub{color:var(--mute);font-size:13px;padding:0 16px 8px;margin:0}
+section{padding:12px 16px;border-top:1px solid var(--line)}
+h2{font-size:14px;margin:0 0 8px}
+label{display:block;font-size:12px;color:var(--mute);margin-bottom:3px}
+input[type=text],input[type=number]{width:100%;font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+input:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.row3{display:grid;grid-template-columns:1fr 1fr 56px;gap:8px;margin-bottom:8px;align-items:end}
+select{width:100%;font-size:16px;padding:8px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);min-height:40px}
+input[type=color]{width:100%;height:40px;padding:2px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+button{font:inherit;font-size:14px;padding:9px 12px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;min-height:40px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger{color:var(--red)}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.drop{border:2px dashed var(--line);border-radius:8px;padding:14px;text-align:center;color:var(--mute);font-size:13px;cursor:pointer}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+.msg{font-size:12px;margin-top:6px;color:var(--mute)}
+.msg.err{color:var(--red)}
+.hint{font-size:12px;color:var(--mute);margin:6px 0 0}
+#list{list-style:none;margin:0;padding:0}
+#list li{display:grid;grid-template-columns:30px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+#list li input[type=color]{height:30px;width:30px;padding:0;border-radius:50%;overflow:hidden}
+#list .op{grid-column:2 / 4;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)}
+#list .op input{flex:1;accent-color:var(--accent);height:24px}
+#list .op output{width:3.2em;text-align:right;font-variant-numeric:tabular-nums}
+#list .nm{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#list .co{font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+#list button{min-height:30px;padding:3px 8px;font-size:12px}
+.empty{color:var(--mute);font-size:13px}
+.count{font-weight:400;color:var(--mute)}
+.leaflet-container{font:inherit}
+#mapwrap{position:relative;height:100vh}#map{height:100%}
+.tools{position:absolute;top:10px;left:56px;right:60px;z-index:1000;display:flex;flex-wrap:wrap;gap:6px;pointer-events:none}.tools button{pointer-events:auto}
+.tools button{background:#fff;color:#16191d;border:2px solid rgba(0,0,0,.25);box-shadow:0 1px 4px rgba(0,0,0,.2);font-weight:600}
+.tools button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tools button.danger{color:#e6261f}.tools button.armed{background:#e6261f;color:#fff;border-color:#e6261f}
+.qa{position:absolute;top:60px;left:56px;z-index:1000;width:min(300px,calc(100% - 70px));background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:12px}
+.qa[hidden]{display:none}
+.tools button.lmb{background:#fff;color:#16191d}
+.res{list-style:none;margin:0 0 8px;padding:0;max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:6px}
+.res:empty{display:none}
+.res li{padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line)}
+.res li:last-child{border-bottom:0}.res li:hover,.res li.sel{background:var(--accent);color:#fff}
+.lm-label{background:rgba(255,255,255,.92);border:0;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.3);font-weight:700;font-size:12px;padding:1px 6px;color:#16191d}
+.lm-label::before{display:none}
+#lmList{list-style:none;margin:0;padding:0}
+#lmList li{display:grid;grid-template-columns:30px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+#lmList li input[type=color]{height:30px;width:30px;padding:0;border-radius:50%;overflow:hidden}
+#lmList .nm{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lmList .co{font-size:12px;color:var(--mute)}
+#lmList button{min-height:30px;padding:3px 8px;font-size:12px}.qa h2{display:flex;justify-content:space-between;align-items:center}
+.qa input{margin-bottom:8px}.qa .x{min-height:30px;padding:2px 9px}
+.pop{border-collapse:collapse;margin-top:4px;font-size:13px}.pop td{padding:1px 0}.pop td:first-child{color:#5d6570;padding-right:10px}.pop td:last-child{font-variant-numeric:tabular-nums;user-select:all}
+@media(max-width:760px){body{grid-template-columns:1fr;grid-template-rows:60vh auto}#mapwrap{height:60vh;order:-1}aside{border-right:0}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>Radius Mapper</h1>
+  <p class="sub">Plot points with a radius in meters. Files are read on this computer only.</p>
+
+  <section>
+    <h2>Upload spreadsheet</h2>
+    <div class="drop" id="drop" tabindex="0">Drop an .xlsx / .xls / .csv here, or click to choose
+      <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden>
+    </div>
+    <div class="msg" id="upMsg">Columns: Name, Latitude, Longitude, Radius (Timestamp, Color, Opacity optional)</div>
+    <div class="btns" style="margin-top:8px">
+      <button id="tmpl">Download template</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Timestamps</h2>
+    <div class="msg" id="tzInfo" style="margin:0 0 8px">No timestamps loaded yet.</div>
+    <div class="row">
+      <div><label for="tzFrom">Sheet time zone</label><select id="tzFrom"></select></div>
+      <div><label for="tzTo">Convert to</label><select id="tzTo"></select></div>
+    </div>
+    <button class="primary" id="tzGo" style="width:100%">Convert timestamps</button>
+  </section>
+
+  <section>
+    <h2>Add manually</h2>
+    <label for="mName">Name</label>
+    <input type="text" id="mName" placeholder="e.g. Location 1" style="margin-bottom:8px">
+    <div class="row">
+      <div><label for="mLat">Latitude</label><input type="text" id="mLat" inputmode="decimal" placeholder="42.3876"></div>
+      <div><label for="mLng">Longitude</label><input type="text" id="mLng" inputmode="decimal" placeholder="-71.0995"></div>
+    </div>
+    <div class="row3">
+      <div><label for="mRad">Radius (m)</label><input type="number" id="mRad" min="1" value="100"></div>
+      <div><label>&nbsp;</label><button class="primary" id="add" style="width:100%">Add point</button></div>
+      <div><label for="mCol">Color</label><input type="color" id="mCol" value="#2ecc40"></div>
+    </div>
+    <label for="mTs">Timestamp <span style="font-weight:400">(blank = now)</span></label>
+    <input type="text" id="mTs" placeholder="e.g. 11/25/2026 5:13 AM (your local time)" style="margin-bottom:8px">
+    <p class="hint">Tip: click the map to fill in coordinates, or paste "lat, lng" into the Latitude box.</p>
+    <div class="msg err" id="addMsg"></div>
+  </section>
+
+  <section>
+    <h2>Landmarks <span class="count" id="lmCount"></span></h2>
+    <ul id="lmList"></ul>
+  </section>
+
+  <section style="flex:1">
+    <h2>Points <span class="count" id="count"></span></h2>
+    <div style="margin-bottom:8px"><label for="sortBy">Sort by</label>
+      <select id="sortBy">
+        <option value="added">Order added</option>
+        <option value="new">Time: newest → oldest</option>
+        <option value="old">Time: oldest → newest</option>
+      </select>
+    </div>
+    <div class="btns" style="margin-bottom:8px">
+      <button id="fit">Zoom to all</button>
+      <button id="export">Export .xlsx</button>
+    </div>
+    <ul id="list"></ul>
+  </section>
+</aside>
+<div id="mapwrap">
+  <div id="map"></div>
+  <div class="tools">
+    <button class="primary" id="qaOpen">+ Add point</button>
+    <button class="lmb" id="lmOpen">+ Add landmark</button>
+    <button class="danger" id="resetLm">Reset landmarks</button>
+    <button class="danger" id="resetPts">Reset points</button>
+    <button class="danger" id="reset">Reset all</button>
+  </div>
+  <div class="qa" id="lm" hidden>
+    <h2>Add a landmark <button class="x" id="lmClose" aria-label="Close">✕</button></h2>
+    <label for="lmName">Name</label>
+    <input type="text" id="lmName" placeholder="Ie: home, work, incident">
+    <label for="lmAddr">Address or lat, long</label>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px">
+      <input type="text" id="lmAddr" placeholder="93 Highland Ave, Somerville MA" style="margin:0">
+      <button id="lmFind">Find</button>
+    </div>
+    <ul class="res" id="lmRes"></ul>
+    <div style="display:grid;grid-template-columns:1fr 56px;gap:8px;align-items:end;margin-bottom:8px">
+      <div class="msg" id="lmAt" style="margin:0">No location yet. Search, or tap the map.</div>
+      <div><label for="lmCol">Color</label><input type="color" id="lmCol" value="#ff8c00"></div>
+    </div>
+    <button class="primary" id="lmAdd" style="width:100%">Drop landmark</button>
+    <div class="msg err" id="lmMsg"></div>
+  </div>
+  <div class="qa" id="qa" hidden>
+    <h2>Add a point <button class="x" id="qaClose" aria-label="Close">✕</button></h2>
+    <label for="qCoord">Coordinates (lat, long)</label>
+    <input type="text" id="qCoord" placeholder="42.3876, -71.0995" inputmode="decimal">
+    <div class="row3" style="margin-bottom:0">
+      <div><label for="qRad">Radius (m)</label><input type="number" id="qRad" min="1" value="100"></div>
+      <div><label for="qName">Name</label><input type="text" id="qName" placeholder="optional"></div>
+      <div><label for="qCol">Color</label><input type="color" id="qCol" value="#2ecc40"></div>
+    </div>
+    <label for="qTs">Timestamp <span style="font-weight:400">(blank = now)</span></label>
+    <input type="text" id="qTs" placeholder="optional">
+    <button class="primary" id="qAdd" style="width:100%">Add to map</button>
+    <div class="msg err" id="qMsg"></div>
+    <p class="hint">Or tap the map to drop the coordinates in.</p>
+  </div>
+</div>
+
+<script>
+{
+const DEFAULT_COLOR = '#2ecc40';
+const DEFAULT_OPACITY = 0.25;
+const STORE = 'radiusMapper.points.v1';
+const pts = [];          // {id,name,lat,lng,r,color,layers}
+let nextId = 1;
+let tempPin = null;
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $ = id => document.getElementById(id);
+
+// ---- Map ----
+const map = L.map('map').setView([42.3876, -71.0995], 13);
+const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'}).addTo(map);
+const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 19, attribution: 'Imagery &copy; Esri'});
+const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {maxZoom: 19});
+L.control.layers({'Street': street, 'Satellite': sat, 'Satellite + labels': L.layerGroup([sat, labels])}, null, {position: 'topright'}).addTo(map);
+L.control.scale({imperial: true, metric: true}).addTo(map);
+const group = L.featureGroup().addTo(map);
+
+map.on('click', e => {
+  $('mLat').value = e.latlng.lat.toFixed(6);
+  $('mLng').value = e.latlng.lng.toFixed(6);
+  if (!$('qa').hidden) $('qCoord').value = e.latlng.lat.toFixed(6) + ', ' + e.latlng.lng.toFixed(6);
+  if (!$('lm').hidden) setLmSpot(e.latlng.lat, e.latlng.lng, '');
+  if (tempPin) map.removeLayer(tempPin);
+  tempPin = L.circleMarker(e.latlng, {radius: 6, color: '#0a5cff', weight: 2, fillOpacity: 0.3}).addTo(map);
+  $('mName').focus();
+});
+
+// ---- Points ----
+function draw(p) {
+  if (p.layers) p.layers.forEach(l => group.removeLayer(l));
+  const popup = () => { const t = timeText(p), conv = p.time && t !== p.time.raw; return `<b>${esc(p.name)}</b><table class="pop">
+    <tr><td>Latitude</td><td>${p.lat.toFixed(6)}</td></tr>
+    <tr><td>Longitude</td><td>${p.lng.toFixed(6)}</td></tr>
+    <tr><td>Timestamp</td><td>${t ? esc(t) : '<i>none</i>'}</td></tr>
+    ${conv ? `<tr><td>As written</td><td>${esc(p.time.raw)}</td></tr>` : ''}
+    <tr><td>Radius</td><td>${p.r.toLocaleString()} m</td></tr></table>`; };
+  const circle = L.circle([p.lat, p.lng], {radius: p.r, color: p.color, weight: 1.5, fillColor: p.color, fillOpacity: p.op}).bindPopup(popup);
+  const dot = L.circleMarker([p.lat, p.lng], {radius: 4, color: '#a0100c', weight: 1, fillColor: '#e6261f', fillOpacity: 1}).bindPopup(popup);
+  p.layers = [circle, dot];
+  group.addLayer(circle); group.addLayer(dot);
+}
+
+// time = {raw, wall, off, tz, label, manual} from parseSheetTime / manualTime, or null
+function addPoint(name, lat, lng, r, color, time, op) {
+  const p = {id: nextId++, name: name || `Point ${nextId - 1}`, lat, lng, r, color: color || DEFAULT_COLOR, time: time || null,
+    op: isFinite(op) && op >= 0 && op <= 1 ? op : DEFAULT_OPACITY};
+  pts.push(p); draw(p); return p;
+}
+
+function removePoint(id) {
+  const i = pts.findIndex(p => p.id === id);
+  if (i < 0) return;
+  pts[i].layers.forEach(l => group.removeLayer(l));
+  pts.splice(i, 1);
+  refresh();
+}
+
+// Sorted copy for the list and export; points with no readable time go last
+let sortBy = 'added';
+function sorted() {
+  if (sortBy === 'added') return pts.slice();
+  const dir = sortBy === 'new' ? -1 : 1;
+  return pts.map(p => [p, instant(p)]).sort((a, b) => {
+    const A = Number.isFinite(a[1]), B = Number.isFinite(b[1]);
+    if (A !== B) return A ? -1 : 1;
+    return A ? (a[1] - b[1]) * dir || a[0].id - b[0].id : a[0].id - b[0].id;
+  }).map(x => x[0]);
+}
+$('sortBy').onchange = e => {
+  sortBy = e.target.value;
+  try { localStorage.setItem(STORE + '.sort', sortBy); } catch (err) {}
+  refresh();
+};
+
+function refresh() {
+  $('count').textContent = pts.length ? `(${pts.length})` : '';
+  tzSummary();
+  $('list').innerHTML = pts.length ? sorted().map(p => `
+    <li data-id="${p.id}">
+      <input type="color" value="${esc(p.color)}" aria-label="Circle color for ${esc(p.name)}">
+      <div><div class="nm">${esc(p.name)}</div><div class="co">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)} · ${p.r.toLocaleString()} m${p.time ? '<br>' + esc(timeText(p)) : ''}</div></div>
+      <div class="btns"><button data-act="go">Go</button><button data-act="del" class="danger" aria-label="Delete">✕</button></div>
+      <div class="op">Opacity <input type="range" min="0" max="100" step="5" value="${Math.round(p.op * 100)}" aria-label="Fill opacity for ${esc(p.name)}"><output>${Math.round(p.op * 100)}%</output></div>
+    </li>`).join('') : '<li class="empty" style="display:block">No points yet. Upload a sheet or add one above.</li>';
+  save();
+}
+
+$('list').addEventListener('input', e => {
+  const p = pts.find(x => x.id === +e.target.closest('li')?.dataset.id);
+  if (!p) return;
+  if (e.target.type === 'color') { p.color = e.target.value; draw(p); save(); }
+  if (e.target.type === 'range') {
+    p.op = e.target.value / 100;
+    e.target.nextElementSibling.textContent = e.target.value + '%';
+    p.layers[0].setStyle({fillOpacity: p.op});
+    save();
+  }
+});
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = +b.closest('li').dataset.id;
+  const p = pts.find(x => x.id === id);
+  if (b.dataset.act === 'del') removePoint(id);
+  if (b.dataset.act === 'go' && p) { map.fitBounds(p.layers[0].getBounds(), {padding: [40, 40]}); p.layers[0].openPopup(); }
+});
+
+function fitAll() { if (pts.length) map.fitBounds(group.getBounds(), {padding: [30, 30]}); }
+$('fit').onclick = fitAll;
+
+// ---- Reset buttons (only "Reset all" asks for a second tap) ----
+function resetPoints() {
+  group.clearLayers(); pts.length = 0; nextId = 1;
+  if (tempPin) { map.removeLayer(tempPin); tempPin = null; }
+  ['mName','mLat','mLng','mTs','qCoord','qName','qTs'].forEach(id => $(id).value = '');
+  $('addMsg').textContent = ''; $('qMsg').textContent = '';
+  $('upMsg').className = 'msg'; $('upMsg').textContent = 'Columns: Name, Latitude, Longitude, Radius (Timestamp, Color, Opacity optional)';
+  refresh();
+  try { localStorage.removeItem(STORE); } catch (e) {}
+}
+function resetLandmarks() {
+  lmGroup.clearLayers(); lms.length = 0; lmNext = 1;
+  ['lmName','lmAddr'].forEach(id => $(id).value = '');
+  closeLm(); refreshLm();
+  try { localStorage.removeItem(STORE + '.lm'); } catch (e) {}
+}
+$('resetPts').onclick = resetPoints;
+$('resetLm').onclick = resetLandmarks;
+
+let resetArmed = null;
+const rb = $('reset');
+function disarm() { clearTimeout(resetArmed); resetArmed = null; rb.textContent = 'Reset all'; rb.classList.remove('armed'); }
+rb.onclick = () => {
+  if (!resetArmed) {
+    rb.textContent = 'Tap again to wipe all'; rb.classList.add('armed');
+    resetArmed = setTimeout(disarm, 3000);
+    return;
+  }
+  disarm();
+  resetPoints(); resetLandmarks();
+  map.setView([42.3876, -71.0995], 13);
+};
+
+// ---- Quick add (map toolbar) ----
+function checkPoint(lat, lng, r) {
+  return !isFinite(lat) || lat < -90 || lat > 90 ? 'Latitude must be between -90 and 90.'
+    : !isFinite(lng) || lng < -180 || lng > 180 ? 'Longitude must be between -180 and 180.'
+    : !isFinite(r) || r <= 0 ? 'Radius must be a positive number of meters.' : '';
+}
+const qa = $('qa');
+['click','dblclick','mousedown','touchstart','wheel'].forEach(t => {
+  qa.addEventListener(t, e => e.stopPropagation());
+  $('lm').addEventListener(t, e => e.stopPropagation());
+  document.querySelector('.tools').addEventListener(t, e => e.stopPropagation());
+});
+$('qaOpen').onclick = () => { qa.hidden = !qa.hidden; $('lm').hidden = true; if (!qa.hidden) $('qCoord').focus(); };
+$('qaClose').onclick = () => { qa.hidden = true; };
+$('qAdd').onclick = () => {
+  const m = $('qCoord').value.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+  const lat = m ? parseFloat(m[1]) : NaN, lng = m ? parseFloat(m[2]) : NaN, r = parseFloat($('qRad').value);
+  const err = m ? checkPoint(lat, lng, r) : 'Enter coordinates like 42.3876, -71.0995';
+  $('qMsg').textContent = err;
+  if (err) return;
+  const p = addPoint($('qName').value.trim(), lat, lng, r, $('qCol').value, manualTime($('qTs').value));
+  if (tempPin) { map.removeLayer(tempPin); tempPin = null; }
+  $('qCoord').value = ''; $('qName').value = ''; $('qTs').value = '';
+  refresh();
+  map.fitBounds(p.layers[0].getBounds(), {padding: [60, 60], maxZoom: 17});
+  p.layers[0].openPopup();
+};
+['qCoord','qRad','qName','qTs'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('qAdd').click(); }));
+
+// ---- Manual entry ----
+$('mLat').addEventListener('input', e => {
+  const m = e.target.value.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m) { $('mLat').value = m[1]; $('mLng').value = m[2]; }
+});
+$('add').onclick = () => {
+  const lat = parseFloat($('mLat').value), lng = parseFloat($('mLng').value), r = parseFloat($('mRad').value);
+  const err = !isFinite(lat) || lat < -90 || lat > 90 ? 'Latitude must be between -90 and 90.'
+    : !isFinite(lng) || lng < -180 || lng > 180 ? 'Longitude must be between -180 and 180.'
+    : !isFinite(r) || r <= 0 ? 'Radius must be a positive number of meters.' : '';
+  $('addMsg').textContent = err;
+  if (err) return;
+  const p = addPoint($('mName').value.trim(), lat, lng, r, $('mCol').value, manualTime($('mTs').value));
+  if (tempPin) { map.removeLayer(tempPin); tempPin = null; }
+  $('mName').value = ''; $('mLat').value = ''; $('mLng').value = ''; $('mTs').value = '';
+  refresh();
+  map.fitBounds(p.layers[0].getBounds(), {padding: [60, 60], maxZoom: 17});
+};
+['mName','mLat','mLng','mRad','mTs'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('add').click(); }));
+
+// ---- Spreadsheet import ----
+const norm = s => String(s).toLowerCase().replace(/[^a-z]/g, '');
+const ALIASES = {
+  name: ['name','label','id','title','location','description','desc','site'],
+  lat: ['lat','latitude','y'],
+  lng: ['lng','lon','long','longitude','x'],
+  r: ['radius','radiusm','radiusmeters','radiusmetres','meters','metres','r','distance','range'],
+  color: ['color','colour','hex'],
+  op: ['opacity','fillopacity','alpha'],
+  ts: ['timestamp','datetime','datetimeutc','date','time','dateandtime','datetimestamp','recorded','eventtime','starttime']
+};
+function findCol(headers, key) {
+  const n = headers.map(norm);
+  for (const a of ALIASES[key]) { const i = n.indexOf(a); if (i >= 0) return i; }
+  for (const a of ALIASES[key]) { const i = n.findIndex(h => h.startsWith(a) && a.length > 2); if (i >= 0) return i; }
+  return -1;
+}
+function parseCoord(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v ?? '').trim();
+  if (!s) return NaN;
+  const neg = /[SW]$/i.test(s) || s.startsWith('-');
+  const nums = s.match(/\d+(?:\.\d+)?/g);
+  if (!nums) return NaN;
+  let d = parseFloat(nums[0]) + (nums[1] ? parseFloat(nums[1]) / 60 : 0) + (nums[2] ? parseFloat(nums[2]) / 3600 : 0);
+  return neg ? -d : d;
+}
+
+// ---- Time zones ----
+const ZONES = [['UTC','UTC / GMT'],['America/New_York','Eastern'],['America/Chicago','Central'],['America/Denver','Mountain'],
+  ['America/Phoenix','Arizona (no DST)'],['America/Los_Angeles','Pacific'],['America/Anchorage','Alaska'],['Pacific/Honolulu','Hawaii'],
+  ['America/Puerto_Rico','Atlantic (Puerto Rico)'],['Europe/London','London'],['Europe/Paris','Central Europe'],['Asia/Tokyo','Japan']];
+const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const ABBR = {EST:-300,EDT:-240,CST:-360,CDT:-300,MST:-420,MDT:-360,PST:-480,PDT:-420,AKST:-540,AKDT:-480,HST:-600,AST:-240,ADT:-180,BST:60,CET:60,CEST:120,JST:540};
+const ZONE_RE = /\s*\(?((?:GMT|UTC)\s*[+-]\s*\d{1,2}(?::?\d\d)?|GMT|UTC|Z|[+-]\d\d:?\d\d|EST|EDT|CST|CDT|MST|MDT|PST|PDT|AKST|AKDT|HST|AST|ADT|BST|CET|CEST|JST)\)?$/i;
+let srcTz = 'auto', showTz = 'original';
+
+function tokenOffset(tok) {
+  const t = tok.toUpperCase().replace(/\s/g, '');
+  if (t === 'GMT' || t === 'UTC' || t === 'Z') return 0;
+  if (t in ABBR) return ABBR[t];
+  const m = t.match(/([+-])(\d{1,2}):?(\d\d)?$/);
+  return m ? (m[1] === '-' ? -1 : 1) * (+m[2] * 60 + +(m[3] || 0)) : NaN;
+}
+// Clock reading with no zone -> ms as if it were UTC
+function parseWall(s) {
+  s = s.trim();
+  let m = s.match(/^(\d{4})-(\d\d)-(\d\d)(?:[ T](\d\d):(\d\d)(?::(\d\d)(?:\.\d+)?)?)?$/);
+  if (m) return Date.UTC(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:,?\s+(\d{1,2}):(\d\d)(?::(\d\d))?\s*([AP]M)?)?$/i);
+  if (m) {
+    let y = +m[3]; if (y < 100) y += 2000;
+    let h = +(m[4] || 0); if (m[7]) { h %= 12; if (/p/i.test(m[7])) h += 12; }
+    return Date.UTC(y, m[1] - 1, +m[2], h, +(m[5] || 0), +(m[6] || 0));
+  }
+  const t = Date.parse(s + ' GMT');
+  return Number.isFinite(t) ? t : Date.parse(s + 'Z');
+}
+const fmtCache = {};
+function fmtIn(ms, tz) {
+  const f = fmtCache[tz] || (fmtCache[tz] = new Intl.DateTimeFormat('en-US', {timeZone: tz, weekday: 'short', month: 'short', day: 'numeric',
+    year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short'}));
+  return f.format(new Date(ms));
+}
+const offCache = {};
+function tzOffset(ms, tz) {   // minutes east of UTC for that zone at that instant
+  const f = offCache[tz] || (offCache[tz] = new Intl.DateTimeFormat('en-US', {timeZone: tz, hourCycle: 'h23', year: 'numeric',
+    month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'}));
+  const p = {}; f.formatToParts(new Date(ms)).forEach(x => p[x.type] = x.value);
+  return (Date.UTC(+p.year, p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000) / 60000;
+}
+function wallToMs(wall, tz) { const first = wall - tzOffset(wall, tz) * 60000; return wall - tzOffset(first, tz) * 60000; }
+
+function parseSheetTime(raw, shown) {
+  const text = String(shown ?? raw ?? '').trim();
+  if (!text) return null;
+  if (typeof raw === 'number' && raw > 20000 && raw < 80000)   // real Excel date cell: no zone stored
+    return {raw: text, wall: Math.round((raw - 25569) * 86400) * 1000, off: null, tz: null, label: '', manual: false};
+  let off = null, label = '', rest = text;
+  const zm = text.match(ZONE_RE);
+  if (zm && Number.isFinite(tokenOffset(zm[1]))) {
+    off = tokenOffset(zm[1]); label = zm[1].toUpperCase().replace(/\s/g, ''); if (label === 'Z') label = 'UTC';
+    rest = text.slice(0, zm.index);
+  }
+  return {raw: text, wall: parseWall(rest), off, tz: null, label, manual: false};
+}
+function manualTime(v) {   // typed in this computer's time zone unless a zone is written; blank = now
+  v = v.trim();
+  if (!v) { const now = Date.now(); return {raw: fmtIn(now, LOCAL_TZ), wall: now, off: 0, tz: null, label: 'UTC', manual: true}; }
+  const t = parseSheetTime(v, v); t.manual = true; if (t.off === null) t.tz = LOCAL_TZ;
+  return t;
+}
+function instant(p) {
+  const t = p.time;
+  if (!t || !Number.isFinite(t.wall)) return NaN;
+  if (!t.manual && srcTz !== 'auto') return wallToMs(t.wall, srcTz);   // user said what zone the sheet is in
+  if (Number.isFinite(t.off)) return t.wall - t.off * 60000;
+  return wallToMs(t.wall, t.tz || 'UTC');                              // no zone written: assume UTC
+}
+function timeText(p) {
+  if (!p.time) return '';
+  if (showTz === 'original') return p.time.raw;
+  const ms = instant(p);
+  return Number.isFinite(ms) ? fmtIn(ms, showTz) : p.time.raw;
+}
+const zoneName = tz => (ZONES.find(z => z[0] === tz) || [tz, tz.replace(/_/g, ' ')])[1];
+function tzSummary() {
+  const sheet = pts.filter(p => p.time && !p.time.manual);
+  if (!sheet.length) { $('tzInfo').textContent = 'No spreadsheet timestamps loaded yet.'; return; }
+  const counts = {};
+  sheet.forEach(p => { const k = Number.isFinite(p.time.wall) ? (p.time.label || 'none written') : 'unreadable'; counts[k] = (counts[k] || 0) + 1; });
+  const parts = Object.entries(counts).map(([k, n]) => `${k} (${n})`);
+  $('tzInfo').textContent = 'Detected in sheet: ' + parts.join(', ') +
+    (counts['none written'] && srcTz === 'auto' ? '. Times with no zone are treated as UTC; set the sheet time zone if that\'s wrong.' : '.') +
+    (showTz !== 'original' ? ` Showing ${zoneName(showTz)} time.` : ' Showing times as written.');
+}
+function fillZones() {
+  const all = (Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []).filter(z => !ZONES.some(c => c[0] === z));
+  const opts = ZONES.map(([v, n]) => `<option value="${v}">${n}</option>`).join('') +
+    (all.length ? `<optgroup label="All time zones">${all.map(z => `<option value="${esc(z)}">${esc(z.replace(/_/g, ' '))}</option>`).join('')}</optgroup>` : '');
+  $('tzFrom').innerHTML = '<option value="auto">Auto-detect from sheet</option>' + opts;
+  $('tzTo').innerHTML = '<option value="original">As written (no conversion)</option>' + opts;
+  $('tzFrom').value = srcTz;
+  $('tzTo').value = showTz === 'original' ? 'America/New_York' : showTz;
+}
+$('tzGo').onclick = () => {
+  srcTz = $('tzFrom').value; showTz = $('tzTo').value;
+  try { localStorage.setItem(STORE + '.tz', JSON.stringify({srcTz, showTz})); } catch (e) {}
+  map.closePopup(); refresh();
+};
+
+function handleFile(file) {
+  const msg = $('upMsg'); msg.className = 'msg'; msg.textContent = 'Reading ' + file.name + '…';
+  const isCsv = /\.csv$/i.test(file.name);
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type: 'array', raw: isCsv});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: '', blankrows: false});
+      const shown = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: '', raw: false, blankrows: false}); // text as Excel displays it
+      if (!rows.length) throw new Error('The first sheet is empty.');
+      const headers = rows[0].map(String);
+      let c = {name: findCol(headers,'name'), lat: findCol(headers,'lat'), lng: findCol(headers,'lng'), r: findCol(headers,'r'),
+               color: findCol(headers,'color'), ts: findCol(headers,'ts'), op: findCol(headers,'op')};
+      let first = 1;
+      if (c.lat < 0 || c.lng < 0) {
+        // No header row: numbers in order = latitude, longitude, radius; a date-looking cell = timestamp
+        const r0 = rows[0], s0 = shown[0];
+        const isDateCell = i => { const t = parseSheetTime(r0[i], s0[i]); return !!t && Number.isFinite(t.wall); };
+        const nums = r0.map((v, i) => i).filter(i => r0[i] !== '' && isFinite(Number(r0[i])) && !(typeof r0[i] === 'number' && isDateCell(i) && Math.abs(r0[i]) > 180));
+        if (nums.length < 3) throw new Error('Could not find Latitude, Longitude and Radius columns. First row: ' + s0.join(' | '));
+        c = {name: -1, lat: nums[0], lng: nums[1], r: nums[2], color: -1, ts: r0.findIndex((v, i) => !nums.includes(i) && isDateCell(i)), op: -1};
+        first = 0;
+      }
+      if (c.r < 0) throw new Error('Could not find a Radius column. Found: ' + headers.join(', '));
+      let added = 0, skipped = [];
+      for (let i = first; i < rows.length; i++) {
+        const row = rows[i], txt = shown[i] || [];
+        const lat = parseCoord(row[c.lat]), lng = parseCoord(row[c.lng]), r = parseFloat(row[c.r]);
+        if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || !isFinite(r) || r <= 0) { skipped.push(i + 1); continue; }
+        let col = c.color >= 0 ? String(row[c.color]).trim() : '';
+        if (col && !col.startsWith('#')) col = '#' + col;
+        const time = c.ts >= 0 ? parseSheetTime(row[c.ts], txt[c.ts]) : null;
+        let op = c.op >= 0 && row[c.op] !== '' ? parseFloat(String(row[c.op]).replace('%', '')) : NaN;
+        if (op > 1) op = op / 100;   // accept 25 or 0.25
+        addPoint(c.name >= 0 ? String(row[c.name]).trim() : '', lat, lng, r, /^#[0-9a-f]{6}$/i.test(col) ? col : DEFAULT_COLOR, time, op);
+        added++;
+      }
+      refresh(); fitAll();
+      msg.textContent = `Added ${added} point${added === 1 ? '' : 's'} from ${file.name}.` +
+        (skipped.length ? ` Skipped ${skipped.length} bad row${skipped.length === 1 ? '' : 's'} (sheet row ${skipped.slice(0, 10).join(', ')}${skipped.length > 10 ? '…' : ''}).` : '');
+    } catch (err) { msg.className = 'msg err'; msg.textContent = err.message; }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ---- Landmarks ----
+const lms = [];   // {id,name,addr,lat,lng,color,layer}
+let lmNext = 1, lmSpot = null, lmPin = null, lmFound = [];
+const lmGroup = L.featureGroup().addTo(map);
+
+function lmPopup(l) {
+  return `<b>${esc(l.name)}</b><table class="pop">
+    ${l.addr ? `<tr><td>Address</td><td style="user-select:text">${esc(l.addr)}</td></tr>` : ''}
+    <tr><td>Latitude</td><td>${l.lat.toFixed(6)}</td></tr>
+    <tr><td>Longitude</td><td>${l.lng.toFixed(6)}</td></tr></table>`;
+}
+function drawLm(l) {
+  if (l.layer) lmGroup.removeLayer(l.layer);
+  l.layer = L.circleMarker([l.lat, l.lng], {radius: 8, color: '#fff', weight: 2.5, fillColor: l.color, fillOpacity: 1})
+    .bindPopup(() => lmPopup(l))
+    .bindTooltip(esc(l.name), {permanent: true, direction: 'right', offset: [10, 0], className: 'lm-label'});
+  lmGroup.addLayer(l.layer);
+}
+function addLm(name, addr, lat, lng, color) {
+  const l = {id: lmNext++, name: name || `Landmark ${lmNext - 1}`, addr: addr || '', lat, lng, color: color || '#ff8c00'};
+  lms.push(l); drawLm(l); return l;
+}
+function refreshLm() {
+  $('lmCount').textContent = lms.length ? `(${lms.length})` : '';
+  $('lmList').innerHTML = lms.length ? lms.map(l => `
+    <li data-id="${l.id}">
+      <input type="color" value="${esc(l.color)}" aria-label="Color for ${esc(l.name)}">
+      <div><div class="nm">${esc(l.name)}</div><div class="co">${l.addr ? esc(l.addr) : `${l.lat.toFixed(5)}, ${l.lng.toFixed(5)}`}</div></div>
+      <div class="btns"><button data-act="go">Go</button><button data-act="del" class="danger" aria-label="Delete">✕</button></div>
+    </li>`).join('') : '<li class="empty" style="display:block">No landmarks yet. Use + Add landmark on the map.</li>';
+  try { localStorage.setItem(STORE + '.lm', JSON.stringify(lms.map(({name, addr, lat, lng, color}) => ({name, addr, lat, lng, color})))); } catch (e) {}
+}
+$('lmList').addEventListener('input', e => {
+  const l = lms.find(x => x.id === +e.target.closest('li')?.dataset.id);
+  if (l && e.target.type === 'color') { l.color = e.target.value; l.layer.setStyle({fillColor: l.color}); refreshLm(); }
+});
+$('lmList').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const i = lms.findIndex(x => x.id === +b.closest('li').dataset.id); if (i < 0) return;
+  if (b.dataset.act === 'go') { map.setView([lms[i].lat, lms[i].lng], Math.max(map.getZoom(), 17)); lms[i].layer.openPopup(); }
+  if (b.dataset.act === 'del') { lmGroup.removeLayer(lms[i].layer); lms.splice(i, 1); refreshLm(); }
+});
+
+function setLmSpot(lat, lng, addr) {
+  lmSpot = {lat, lng, addr};
+  if (lmPin) map.removeLayer(lmPin);
+  lmPin = L.circleMarker([lat, lng], {radius: 9, color: '#0a5cff', weight: 2, dashArray: '3 3', fillOpacity: 0.15}).addTo(map);
+  $('lmAt').textContent = (addr ? addr + ' · ' : '') + lat.toFixed(6) + ', ' + lng.toFixed(6);
+}
+function closeLm() {
+  $('lm').hidden = true; $('lmRes').innerHTML = ''; $('lmMsg').textContent = '';
+  if (lmPin) { map.removeLayer(lmPin); lmPin = null; }
+}
+$('lmOpen').onclick = () => {
+  if (!$('lm').hidden) return closeLm();
+  $('lm').hidden = false; qa.hidden = true; $('lmName').focus();
+};
+$('lmClose').onclick = closeLm;
+
+// Address search: OpenStreetMap Nominatim, with Photon as a fallback. Only the typed address is sent.
+async function geocode(q) {
+  const c = map.getCenter();
+  try {
+    const b = map.getBounds();
+    const u = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=0&limit=5&q=' + encodeURIComponent(q) +
+      `&viewbox=${b.getWest()},${b.getNorth()},${b.getEast()},${b.getSouth()}&bounded=0`;
+    const r = await fetch(u, {headers: {'Accept': 'application/json'}});
+    if (r.ok) { const j = await r.json(); if (j.length) return j.map(x => ({lat: +x.lat, lng: +x.lon, label: x.display_name})); }
+  } catch (e) {}
+  const r = await fetch(`https://photon.komoot.io/api/?limit=5&lat=${c.lat}&lon=${c.lng}&q=` + encodeURIComponent(q));
+  if (!r.ok) throw new Error('Address search is unavailable right now.');
+  const j = await r.json();
+  return (j.features || []).map(f => {
+    const pr = f.properties || {};
+    const label = [[pr.housenumber, pr.street].filter(Boolean).join(' ') || pr.name, pr.city || pr.town || pr.village, pr.state, pr.postcode].filter(Boolean).join(', ');
+    return {lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label};
+  });
+}
+async function findLm() {
+  const q = $('lmAddr').value.trim(); $('lmMsg').textContent = ''; $('lmRes').innerHTML = '';
+  if (!q) { $('lmMsg').textContent = 'Type an address or coordinates first.'; return; }
+  const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m && !checkPoint(+m[1], +m[2], 1)) { setLmSpot(+m[1], +m[2], ''); map.setView([+m[1], +m[2]], Math.max(map.getZoom(), 16)); return; }
+  $('lmFind').disabled = true; $('lmFind').textContent = '…';
+  try {
+    lmFound = await geocode(q);
+    if (!lmFound.length) { $('lmMsg').textContent = 'No match. Try adding the city and state.'; return; }
+    $('lmRes').innerHTML = lmFound.map((f, i) => `<li data-i="${i}" tabindex="0">${esc(f.label)}</li>`).join('');
+    pickLm(0);
+  } catch (e) { $('lmMsg').textContent = e.message || 'Address search failed. Check your internet connection.'; }
+  finally { $('lmFind').disabled = false; $('lmFind').textContent = 'Find'; }
+}
+function pickLm(i) {
+  const f = lmFound[i]; if (!f) return;
+  [...$('lmRes').children].forEach((li, k) => li.classList.toggle('sel', k === i));
+  setLmSpot(f.lat, f.lng, f.label);
+  map.setView([f.lat, f.lng], Math.max(map.getZoom(), 16));
+}
+$('lmFind').onclick = findLm;
+$('lmAddr').addEventListener('keydown', e => { if (e.key === 'Enter') findLm(); });
+$('lmRes').addEventListener('click', e => { const li = e.target.closest('li'); if (li) pickLm(+li.dataset.i); });
+$('lmRes').addEventListener('keydown', e => { const li = e.target.closest('li'); if (li && e.key === 'Enter') pickLm(+li.dataset.i); });
+$('lmAdd').onclick = () => {
+  if (!lmSpot) { $('lmMsg').textContent = 'Find an address or tap the map to set the location.'; return; }
+  const l = addLm($('lmName').value.trim(), lmSpot.addr, lmSpot.lat, lmSpot.lng, $('lmCol').value);
+  refreshLm();
+  $('lmName').value = ''; $('lmAddr').value = ''; lmSpot = null; lmFound = [];
+  $('lmAt').textContent = 'No location yet. Search, or tap the map.';
+  closeLm();
+  l.layer.openPopup();
+};
+$('lmName').addEventListener('keydown', e => { if (e.key === 'Enter') $('lmAddr').focus(); });
+
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+$('file').onchange = e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; };
+['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+// ---- Export / template ----
+function writeSheet(rows, fname, lmRows) {
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{Name: ''}]);
+  ws['!cols'] = [{wch: 24}, {wch: 12}, {wch: 12}, {wch: 12}, {wch: 34}, {wch: 34}, {wch: 10}, {wch: 11}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Points');
+  if (lmRows && lmRows.length) {
+    const ls = XLSX.utils.json_to_sheet(lmRows);
+    ls['!cols'] = [{wch: 20}, {wch: 50}, {wch: 12}, {wch: 12}, {wch: 10}];
+    XLSX.utils.book_append_sheet(wb, ls, 'Landmarks');
+  }
+  XLSX.writeFile(wb, fname);
+}
+$('export').onclick = () => {
+  if (!pts.length && !lms.length) return;
+  writeSheet(sorted().map(p => ({Name: p.name, Latitude: p.lat, Longitude: p.lng, 'Radius (m)': p.r, 'Timestamp (as written)': p.time ? p.time.raw : '',
+    ...(showTz !== 'original' ? {[`Timestamp (${zoneName(showTz)})`]: timeText(p)} : {}), Color: p.color, 'Opacity (%)': Math.round(p.op * 100)})), 'radius-points.xlsx',
+    lms.map(l => ({Name: l.name, Address: l.addr, Latitude: l.lat, Longitude: l.lng, Color: l.color})));
+};
+$('tmpl').onclick = () => writeSheet([
+  {Name: 'Example A', Latitude: 42.3876, Longitude: -71.0995, 'Radius (m)': 150, Timestamp: 'Wed, 25 Nov 2026 01:08:46 GMT', Color: ''},
+  {Name: 'Example B', Latitude: 42.3967, Longitude: -71.1225, 'Radius (m)': 300, Timestamp: 'Wed, 25 Nov 2026 02:15:03 GMT', Color: ''}
+], 'radius-template.xlsx');
+
+// ---- Persistence (this browser only) ----
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify(pts.map(({name, lat, lng, r, color, time, op}) => ({name, lat, lng, r, color, time, op})))); } catch (e) {}
+}
+try { const z = JSON.parse(localStorage.getItem(STORE + '.tz') || '{}'); if (z.srcTz) srcTz = z.srcTz; if (z.showTz) showTz = z.showTz; } catch (e) {}
+fillZones();
+try { const v = localStorage.getItem(STORE + '.sort'); if (['added','new','old'].includes(v)) { sortBy = v; $('sortBy').value = v; } } catch (e) {}
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE) || '[]');
+  saved.forEach(p => { if (isFinite(p.lat) && isFinite(p.lng) && p.r > 0) addPoint(p.name, p.lat, p.lng, p.r, p.color,
+    p.time ? {...p.time, wall: p.time.wall ?? NaN} : (p.ts ? {raw: p.ts, wall: NaN, off: null, tz: null, label: '', manual: true} : null), p.op); });
+  if (saved.length) fitAll();
+} catch (e) {}
+try {
+  JSON.parse(localStorage.getItem(STORE + '.lm') || '[]').forEach(l => {
+    if (Number.isFinite(l.lat) && Number.isFinite(l.lng)) addLm(l.name, l.addr, l.lat, l.lng, l.color);
+  });
+} catch (e) {}
+refreshLm();
+refresh();
+}
+</script>
+</body>
+</html>
