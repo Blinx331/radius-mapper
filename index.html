@@ -54,7 +54,8 @@ button.danger{color:var(--red)}
 .tools button.danger{color:#e6261f}.tools button.armed{background:#e6261f;color:#fff;border-color:#e6261f}
 .qa{position:absolute;top:60px;left:56px;z-index:1000;width:min(300px,calc(100% - 70px));background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:12px}
 .qa[hidden]{display:none}
-.tools button.lmb{background:#fff;color:#16191d}
+.lmbox{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--bg)}
+.lmbox[hidden]{display:none}.lmbox input{margin-bottom:8px}
 .res{list-style:none;margin:0 0 8px;padding:0;max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:6px}
 .res:empty{display:none}
 .res li{padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line)}
@@ -117,11 +118,6 @@ button.danger{color:var(--red)}
     <div class="msg err" id="addMsg"></div>
   </section>
 
-  <section>
-    <h2>Landmarks <span class="count" id="lmCount"></span></h2>
-    <ul id="lmList"></ul>
-  </section>
-
   <section style="flex:1">
     <h2>Points <span class="count" id="count"></span></h2>
     <div style="margin-bottom:8px"><label for="sortBy">Sort by</label>
@@ -137,32 +133,38 @@ button.danger{color:var(--red)}
     </div>
     <ul id="list"></ul>
   </section>
+  <section>
+    <h2>Landmarks <span class="count" id="lmCount"></span></h2>
+    <button class="primary" id="lmOpen" style="width:100%;margin-bottom:8px">+ Add landmark</button>
+  <div class="lmbox" id="lm" hidden>
+      <label for="lmName">Name</label>
+      <input type="text" id="lmName" placeholder="Ie: home, work, incident">
+      <label for="lmAddr">Address or lat, long</label>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px">
+        <input type="text" id="lmAddr" placeholder="93 Highland Ave, Somerville MA" style="margin:0">
+        <button id="lmFind">Find</button>
+      </div>
+      <ul class="res" id="lmRes"></ul>
+      <div style="display:grid;grid-template-columns:1fr 56px;gap:8px;align-items:end;margin-bottom:8px">
+        <div class="msg" id="lmAt" style="margin:0">No location yet. Find an address, or tap the map.</div>
+        <div><label for="lmCol">Color</label><input type="color" id="lmCol" value="#ff8c00"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+        <button class="primary" id="lmAdd">Drop landmark</button>
+        <button id="lmClose">Cancel</button>
+      </div>
+      <div class="msg err" id="lmMsg"></div>
+    </div>
+    <ul id="lmList"></ul>
+  </section>
 </aside>
 <div id="mapwrap">
   <div id="map"></div>
   <div class="tools">
     <button class="primary" id="qaOpen">+ Add point</button>
-    <button class="lmb" id="lmOpen">+ Add landmark</button>
     <button class="danger" id="resetLm">Reset landmarks</button>
     <button class="danger" id="resetPts">Reset points</button>
     <button class="danger" id="reset">Reset all</button>
-  </div>
-  <div class="qa" id="lm" hidden>
-    <h2>Add a landmark <button class="x" id="lmClose" aria-label="Close">✕</button></h2>
-    <label for="lmName">Name</label>
-    <input type="text" id="lmName" placeholder="Ie: home, work, incident">
-    <label for="lmAddr">Address or lat, long</label>
-    <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:8px">
-      <input type="text" id="lmAddr" placeholder="93 Highland Ave, Somerville MA" style="margin:0">
-      <button id="lmFind">Find</button>
-    </div>
-    <ul class="res" id="lmRes"></ul>
-    <div style="display:grid;grid-template-columns:1fr 56px;gap:8px;align-items:end;margin-bottom:8px">
-      <div class="msg" id="lmAt" style="margin:0">No location yet. Search, or tap the map.</div>
-      <div><label for="lmCol">Color</label><input type="color" id="lmCol" value="#ff8c00"></div>
-    </div>
-    <button class="primary" id="lmAdd" style="width:100%">Drop landmark</button>
-    <div class="msg err" id="lmMsg"></div>
   </div>
   <div class="qa" id="qa" hidden>
     <h2>Add a point <button class="x" id="qaClose" aria-label="Close">✕</button></h2>
@@ -341,7 +343,7 @@ const qa = $('qa');
   $('lm').addEventListener(t, e => e.stopPropagation());
   document.querySelector('.tools').addEventListener(t, e => e.stopPropagation());
 });
-$('qaOpen').onclick = () => { qa.hidden = !qa.hidden; $('lm').hidden = true; if (!qa.hidden) $('qCoord').focus(); };
+$('qaOpen').onclick = () => { qa.hidden = !qa.hidden; if (!qa.hidden) $('qCoord').focus(); };
 $('qaClose').onclick = () => { qa.hidden = true; };
 $('qAdd').onclick = () => {
   const m = $('qCoord').value.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
@@ -584,7 +586,7 @@ function refreshLm() {
       <input type="color" value="${esc(l.color)}" aria-label="Color for ${esc(l.name)}">
       <div><div class="nm">${esc(l.name)}</div><div class="co">${l.addr ? esc(l.addr) : `${l.lat.toFixed(5)}, ${l.lng.toFixed(5)}`}</div></div>
       <div class="btns"><button data-act="go">Go</button><button data-act="del" class="danger" aria-label="Delete">✕</button></div>
-    </li>`).join('') : '<li class="empty" style="display:block">No landmarks yet. Use + Add landmark on the map.</li>';
+    </li>`).join('') : '<li class="empty" style="display:block">No landmarks yet.</li>';
   try { localStorage.setItem(STORE + '.lm', JSON.stringify(lms.map(({name, addr, lat, lng, color}) => ({name, addr, lat, lng, color})))); } catch (e) {}
 }
 $('lmList').addEventListener('input', e => {
@@ -605,12 +607,12 @@ function setLmSpot(lat, lng, addr) {
   $('lmAt').textContent = (addr ? addr + ' · ' : '') + lat.toFixed(6) + ', ' + lng.toFixed(6);
 }
 function closeLm() {
-  $('lm').hidden = true; $('lmRes').innerHTML = ''; $('lmMsg').textContent = '';
+  $('lm').hidden = true; $('lmRes').innerHTML = ''; $('lmMsg').textContent = ''; $('lmOpen').textContent = '+ Add landmark';
   if (lmPin) { map.removeLayer(lmPin); lmPin = null; }
 }
 $('lmOpen').onclick = () => {
   if (!$('lm').hidden) return closeLm();
-  $('lm').hidden = false; qa.hidden = true; $('lmName').focus();
+  $('lm').hidden = false; $('lmOpen').textContent = 'Close'; $('lmName').focus();
 };
 $('lmClose').onclick = closeLm;
 
@@ -662,7 +664,7 @@ $('lmAdd').onclick = () => {
   const l = addLm($('lmName').value.trim(), lmSpot.addr, lmSpot.lat, lmSpot.lng, $('lmCol').value);
   refreshLm();
   $('lmName').value = ''; $('lmAddr').value = ''; lmSpot = null; lmFound = [];
-  $('lmAt').textContent = 'No location yet. Search, or tap the map.';
+  $('lmAt').textContent = 'No location yet. Find an address, or tap the map.';
   closeLm();
   l.layer.openPopup();
 };
